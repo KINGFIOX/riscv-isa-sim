@@ -506,14 +506,15 @@ bool mstatus_csr_t::unlogged_write(const reg_t val) noexcept {
 }
 
 reg_t mstatus_csr_t::compute_mstatus_initial_value() const noexcept {
-  const reg_t big_endian_bits = (proc->extension_enabled_const('U') ? MSTATUS_UBE : 0)
-                              | (proc->extension_enabled_const('S') ? MSTATUS_SBE : 0)
-                              | MSTATUS_MBE;
-  return 0
-         | (proc->extension_enabled_const('U') && (proc->get_const_xlen() != 32) ? set_field((reg_t)0, MSTATUS_UXL, xlen_to_uxl(proc->get_const_xlen())) : 0)
-         | (proc->extension_enabled_const('S') && (proc->get_const_xlen() != 32) ? set_field((reg_t)0, MSTATUS_SXL, xlen_to_uxl(proc->get_const_xlen())) : 0)
-         | (proc->get_mmu()->is_target_big_endian() ? big_endian_bits : 0)
-         | 0;  // initial value for mstatus
+  // const reg_t big_endian_bits = (proc->extension_enabled_const('U') ? MSTATUS_UBE : 0)
+  //                             | (proc->extension_enabled_const('S') ? MSTATUS_SBE : 0)
+  //                             | MSTATUS_MBE;
+  // return 0
+  //        | (proc->extension_enabled_const('U') && (proc->get_const_xlen() != 32) ? set_field((reg_t)0, MSTATUS_UXL, xlen_to_uxl(proc->get_const_xlen())) : 0)
+  //        | (proc->extension_enabled_const('S') && (proc->get_const_xlen() != 32) ? set_field((reg_t)0, MSTATUS_SXL, xlen_to_uxl(proc->get_const_xlen())) : 0)
+  //        | (proc->get_mmu()->is_target_big_endian() ? big_endian_bits : 0)
+  //        | 0;  // initial value for mstatus
+  return MSTATUS_MPP;
 }
 
 // implement class mnstatus_csr_t
