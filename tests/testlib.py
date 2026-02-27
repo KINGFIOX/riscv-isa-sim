@@ -16,10 +16,19 @@ def find_file(path):
     return None
 
 def compile(*args):
-    """Compile a single .c file into a binary."""
+    """Compile a single .c/.s file into a binary. Supports rv32im via RISCV_ISA."""
     dst = os.path.splitext(args[0])[0]
-    cc = os.path.expandvars("$RISCV/bin/riscv64-unknown-elf-gcc")
+    cc = os.environ.get("RISCV_CC") or os.path.expandvars("$RISCV/bin/riscv64-unknown-elf-gcc")
+    if not cc:
+        cross = os.environ.get("CROSS_COMPILE", "")
+        if cross:
+            cc = cross + "gcc"
+        else:
+            cc = "riscv32-unknown-linux-gnu-gcc"
     cmd = [cc, "-g", "-O", "-o", dst]
+    isa = os.environ.get("RISCV_ISA", "")
+    if isa and "rv32" in isa:
+        cmd.extend(["-march=rv32im", "-mabi=ilp32", "-nostdlib", "-nostartfiles", "-ffreestanding"])
     for arg in args:
         found = find_file(arg)
         if found:
@@ -48,6 +57,9 @@ class Spike(object):
             cmd += ["timeout", str(timeout)]
 
         cmd += [find_file("spike")]
+        isa = os.environ.get("RISCV_ISA") or os.environ.get("SPIKE_ISA")
+        if isa:
+            cmd += ["--isa", isa]
         if halted:
             cmd.append('-H')
         if with_gdb:

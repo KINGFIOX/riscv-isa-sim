@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Meson 版构建脚本，对应 ci-tests/build-spike
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT="$DIR/.."
+
+cd "$ROOT"
+
+# 若未配置则先配置
+if [ ! -f build/build.ninja ]; then
+  meson setup build \
+    -Dwarning_level=2 \
+    -Dc_args="-Werror -Wignored-qualifiers -Wunused-function -Wunused-parameter -Wunused-variable" \
+    -Dcpp_args="-Wnon-virtual-dtor"
+fi
+
+ninja -C build
+DESTDIR="$ROOT/build/install" ninja -C build install
+
+# 检查 help 输出
+./build/spike -h

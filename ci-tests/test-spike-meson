@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Meson 版 CI 测试，对应 ci-tests/test-spike
+# 使用 build 构建产物
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT="$DIR/.."
+BUILD="$ROOT/build"
+INSTALL="$BUILD/install/usr/local"
+
+cd "$BUILD"
+
+# 1. spike pk hello 测试
+mkdir -p run
+cd run
+if [ ! -f hello ]; then
+  (wget -q -O spike-ci.tar https://github.com/riscv-software-src/riscv-isa-sim/releases/download/dummy-tag-for-ci-storage/spike-ci.tar \
+    || curl -sL -o spike-ci.tar https://github.com/riscv-software-src/riscv-isa-sim/releases/download/dummy-tag-for-ci-storage/spike-ci.tar) \
+    && tar xf spike-ci.tar || {
+    echo "SKIP: cannot download spike-ci.tar (pk + hello)"
+    exit 0
+  }
+fi
+time "$BUILD/spike" --isa=rv64gc pk hello | grep "Hello, world!  Pi is approximately 3.141588."
+
+# 2. libriscv 外部链接测试（testlib.c 使用 sim.h）
+# 头文件在源码 riscv/，config.h 在 build 目录
+g++ -std=c++17 \
+  -I"$ROOT" -I"$BUILD" \
+  -L"$BUILD" \
+  "$DIR/testlib.c" -lriscv -o test-libriscv
+LD_LIBRARY_PATH="$BUILD" ./test-libriscv | grep "Hello, world!  Pi is approximately 3.141588."
+
+echo "CI tests passed."
