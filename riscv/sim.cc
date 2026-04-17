@@ -40,8 +40,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
              const char *log_path,
              bool dtb_enabled, const char *dtb_file,
              bool socket_enabled,
-             FILE *cmd_file, // needed for command line option --cmd
-             bool is_diff_ref)
+             FILE *cmd_file)
   : htif_t(args),
     isa(cfg->isa(), cfg->priv()),
     cfg(cfg),
@@ -55,15 +54,12 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
     current_step(0),
     current_proc(0),
     debug(false),
-    is_diff_ref(is_diff_ref),
     histogram_enabled(false),
     log(false),
     remote_bitbang(NULL),
     debug_module(this, dm_config)
 {
-  if (is_diff_ref) {
-    signal(SIGINT, &handle_signal);
-  }
+  signal(SIGINT, &handle_signal);
 
   sout_.rdbuf(std::cerr.rdbuf()); // debug output goes to stderr by default
 
@@ -108,120 +104,15 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
     harts[cfg->hartids()[i]] = procs[i];
   }
 
-  // When running without using a dtb, skip the fdt-based configuration steps
   if (!dtb_enabled) return;
 
-  if (is_diff_ref) {
-    int i = 0;
-    procs[i]->set_mmu_capability(IMPL_MMU_SBARE);
-    unsigned max_xlen = procs[i]->get_isa().get_max_xlen();
-    switch (max_xlen) {
-      case 32: procs[i]->set_mmu_capability(IMPL_MMU_SV32); break;
-      case 64: procs[i]->set_mmu_capability(IMPL_MMU_SV39); break;
-      default: std::cerr << "invalid max_xlen = " << max_xlen << std::endl; exit(1);
-    }
-    return;
-  }
-
-  // Load dtb_file if provided, otherwise self-generate a dts/dtb
-  make_dtb(dtb_file);
-
-  void *fdt = (void *)dtb.c_str();
-
-  // Only make a CLINT (Core-Local INTerrupt controller) if one is specified in
-  // the device tree configuration.
-  //
-  // This isn't *quite* as general as we could get (because you might have one
-  // that's not bus-accessible), but it should handle the normal use cases. In
-  // particular, the default device tree configuration that you get without
-  // setting the dtb_file argument has one.
-  reg_t clint_base;
-  if (fdt_parse_clint(fdt, &clint_base, "riscv,clint0") == 0) {
-    clint.reset(new clint_t(this, CPU_HZ / INSNS_PER_RTC_TICK, cfg->real_time_clint()));
-    bus.add_device(clint_base, clint.get());
-  }
-
-  // pointer to wired interrupt controller
-  abstract_interrupt_controller_t *intctrl = NULL;
-
-  // create plic
-  reg_t plic_base;
-  uint32_t plic_ndev;
-  if (fdt_parse_plic(fdt, &plic_base, &plic_ndev, "riscv,plic0") == 0) {
-    plic.reset(new plic_t(this, plic_ndev));
-    bus.add_device(plic_base, plic.get());
-    intctrl = plic.get();
-  }
-
-  // create ns16550
-  reg_t ns16550_base;
-  uint32_t ns16550_shift, ns16550_io_width;
-  if (fdt_parse_ns16550(fdt, &ns16550_base,
-                        &ns16550_shift, &ns16550_io_width, "ns16550a") == 0) {
-    assert(intctrl);
-    ns16550.reset(new ns16550_t(&bus, intctrl, NS16550_INTERRUPT_ID,
-                                ns16550_shift, ns16550_io_width));
-    bus.add_device(ns16550_base, ns16550.get());
-  }
-
-  //per core attribute
-  int cpu_offset = 0, rc;
-  size_t cpu_idx = 0;
-  cpu_offset = fdt_get_offset(fdt, "/cpus");
-  if (cpu_offset < 0)
-    return;
-
-  for (cpu_offset = fdt_get_first_subnode(fdt, cpu_offset); cpu_offset >= 0;
-       cpu_offset = fdt_get_next_subnode(fdt, cpu_offset)) {
-
-    if (cpu_idx >= nprocs())
-      break;
-
-    //handle pmp
-    reg_t pmp_num, pmp_granularity;
-    if (fdt_parse_pmp_num(fdt, cpu_offset, &pmp_num) != 0)
-      pmp_num = 0;
-    procs[cpu_idx]->set_pmp_num(pmp_num);
-
-    if (fdt_parse_pmp_alignment(fdt, cpu_offset, &pmp_granularity) == 0) {
-      procs[cpu_idx]->set_pmp_granularity(pmp_granularity);
-    }
-
-    //handle mmu-type
-    const char *mmu_type;
-    rc = fdt_parse_mmu_type(fdt, cpu_offset, &mmu_type);
-    if (rc == 0) {
-      procs[cpu_idx]->set_mmu_capability(IMPL_MMU_SBARE);
-      if (strncmp(mmu_type, "riscv,sv32", strlen("riscv,sv32")) == 0) {
-        procs[cpu_idx]->set_mmu_capability(IMPL_MMU_SV32);
-      } else if (strncmp(mmu_type, "riscv,sv39", strlen("riscv,sv39")) == 0) {
-        procs[cpu_idx]->set_mmu_capability(IMPL_MMU_SV39);
-      } else if (strncmp(mmu_type, "riscv,sv48", strlen("riscv,sv48")) == 0) {
-        procs[cpu_idx]->set_mmu_capability(IMPL_MMU_SV48);
-      } else if (strncmp(mmu_type, "riscv,sv57", strlen("riscv,sv57")) == 0) {
-        procs[cpu_idx]->set_mmu_capability(IMPL_MMU_SV57);
-      } else if (strncmp(mmu_type, "riscv,sbare", strlen("riscv,sbare")) == 0) {
-        //has been set in the beginning
-      } else {
-        std::cerr << "core ("
-                  << cpu_idx
-                  << ") has an invalid 'mmu-type': "
-                  << mmu_type << ").\n";
-        exit(1);
-      }
-    } else {
-      procs[cpu_idx]->set_mmu_capability(IMPL_MMU_SBARE);
-    }
-
-    cpu_idx++;
-  }
-
-  if (cpu_idx != nprocs()) {
-      std::cerr << "core number in dts ("
-                <<  cpu_idx
-                << ") doesn't match it in command line ("
-                << nprocs() << ").\n";
-      exit(1);
+  // Set MMU capability based on max_xlen (no DTB/FDT parsing needed)
+  procs[0]->set_mmu_capability(IMPL_MMU_SBARE);
+  unsigned max_xlen = procs[0]->get_isa().get_max_xlen();
+  switch (max_xlen) {
+    case 32: procs[0]->set_mmu_capability(IMPL_MMU_SV32); break;
+    case 64: procs[0]->set_mmu_capability(IMPL_MMU_SV39); break;
+    default: std::cerr << "invalid max_xlen = " << max_xlen << std::endl; exit(1);
   }
 }
 
@@ -250,18 +141,6 @@ void sim_t::step(size_t n)
   {
     steps = std::min(n - i, INTERLEAVE - current_step);
     procs[current_proc]->step(steps);
-
-    if (!is_diff_ref) current_step += steps;
-    if (current_step == INTERLEAVE)
-    {
-      current_step = 0;
-      procs[current_proc]->get_mmu()->yield_load_reservation();
-      if (++current_proc == procs.size()) {
-        current_proc = 0;
-        if (clint) clint->increment(INTERLEAVE / INSNS_PER_RTC_TICK);
-        if (ns16550) ns16550->tick();
-      }
-    }
   }
 }
 

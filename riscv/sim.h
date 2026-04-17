@@ -32,8 +32,7 @@ public:
         const debug_module_config_t &dm_config, const char *log_path,
         bool dtb_enabled, const char *dtb_file,
         bool socket_enabled,
-        FILE *cmd_file, // needed for command line option --cmd
-        bool is_diff_ref = false);
+        FILE *cmd_file); // needed for command line option --cmd
   ~sim_t();
 
   // run the simulation to completion
@@ -97,7 +96,6 @@ private:
   size_t current_step;
   size_t current_proc;
   bool debug;
-  bool is_diff_ref;
   bool histogram_enabled; // provide a histogram of PCs
   bool log;
   remote_bitbang_t* remote_bitbang;
